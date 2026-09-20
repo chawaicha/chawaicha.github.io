@@ -1343,7 +1343,7 @@ async function plibOpen(){
       '<button data-s="private"' + (plibScope === 'private' ? ' class="active"' : '') + '>🔒 私密资料</button>' +
     '</div>' +
     '<div class="plib-list"><div class="plib-empty">读取中…</div></div>' +
-    '<div class="modal-actions"><button class="btn-ghost" data-a="close">关闭</button><button class="btn-primary" data-a="add">＋ 新增条目</button></div>'
+    '<div class="modal-actions"><button class="btn-ghost" data-a="close">关闭</button><button class="btn-ghost" data-a="import">📥 批量导入</button><button class="btn-primary" data-a="add">＋ 新增条目</button></div>'
   );
   const box = $('#modal-box');
   box.querySelectorAll('.plib-tabs button').forEach(b => b.onclick = () => {
@@ -1351,10 +1351,93 @@ async function plibOpen(){
     plibOpen();
   });
   box.querySelector('[data-a=close]').onclick = closeModal;
+  box.querySelector('[data-a=import]').onclick = () => plibImportView(box);
   box.querySelector('[data-a=add]').onclick = () => plibForm(box, null);
   await plibRenderList(box);
 }
 $('#plib-btn').addEventListener('click', plibOpen);
+
+/* ---- 批量导入：让 GPT 采访你 → 输出 JSON → 一键入库 ----
+ * 发给 GPT 的采访提示词（在导入页一键复制） */
+const PLIB_INTERVIEW_PROMPT = [
+  '请你做我的采访者，帮我建立"数字分身"的个人资料库。规则：',
+  '1. 像朋友聊天一样采访我，一次只问一个问题，循序渐进，根据我的回答追问细节；',
+  '2. 采访范围：基本信息、兴趣爱好、喜欢的事物（音乐/电影/书/游戏/食物/运动…）、经历、故事、自我描述，以及更私人的内容（私人感受、关系、日记式心绪、秘密等）；',
+  '3. 每得到一条信息，先问我"这条可以公开吗？"——我明确同意公开的标 public，其余一律标 private（默认私密）；',
+  '4. 我说"采访结束"后，把所有信息整理成一个 JSON 数组输出：只输出 JSON 本身，不要任何其他文字，不要用代码块包裹。格式：',
+  '[{"scope":"public","category":"basic_info","key":"昵称","value":"叉歪叉"},{"scope":"private","category":"diary","key":"最近的心事","value":"……"}]',
+  'scope 只能是 public 或 private；category 从这些里选：basic_info / interests / favorites / experiences / stories / self_description / personal / relationships / diary / secrets / misc；',
+  'key 是简短条目名（中文），value 是具体内容（一两句话、第一人称）。',
+  '现在开始采访我吧。'
+].join('\n');
+
+function plibImportView(box){
+  box.innerHTML =
+    '<h3 class="modal-title">📥 批量导入资料</h3>' +
+    '<div class="plib-tip">让 GPT 采访你：点「复制采访提示词」发给 GPT，聊完后把它输出的 JSON 粘贴到下面。<b>没标 scope 的条目默认进 🔒 私密域</b>，不会误公开。</div>' +
+    '<div class="modal-actions" style="margin-bottom:10px"><button class="btn-ghost" data-a="copy">📋 复制采访提示词</button></div>' +
+    '<div class="plib-form"><textarea id="pi-json" style="min-height:130px" placeholder=\'[{"scope":"public","category":"basic_info","key":"昵称","value":"叉歪叉"}, …]\'></textarea></div>' +
+    '<div class="modal-actions"><button class="btn-ghost" data-a="back">返回</button><button class="btn-primary" data-a="parse">解析预览 →</button></div>';
+  box.querySelector('[data-a=copy]').onclick = () => {
+    if(!navigator.clipboard){ toast('当前环境不支持自动复制，请手动复制'); return; }
+    navigator.clipboard.writeText(PLIB_INTERVIEW_PROMPT)
+      .then(() => toast('提示词已复制，去发给 GPT 吧 📋'))
+      .catch(() => toast('复制失败，请重试'));
+  };
+  box.querySelector('[data-a=back]').onclick = () => plibOpen();
+  box.querySelector('[data-a=parse]').onclick = () => {
+    let raw = box.querySelector('#pi-json').value.trim();
+    if(!raw){ toast('先粘贴 GPT 输出的 JSON'); return; }
+    raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''); /* 容忍 ```json 代码块包裹 */
+    let arr;
+    try{ arr = JSON.parse(raw); }catch(e){ toast('JSON 格式有误，检查括号和逗号'); return; }
+    if(!Array.isArray(arr) || !arr.length){ toast('需要是一个非空的 JSON 数组 [...]'); return; }
+    const valid = [];
+    let invalidCount = 0;
+    arr.forEach(it => {
+      if(it && typeof it.key === 'string' && it.key.trim() && typeof it.value === 'string' && it.value.trim()){
+        valid.push({
+          scope: it.scope === 'public' ? 'public' : 'private', /* default private */
+          category: String(it.category || 'misc').slice(0, 30),
+          key: it.key.trim().slice(0, 30),
+          value: it.value.trim().slice(0, 500)
+        });
+      }else invalidCount++;
+    });
+    if(!valid.length){ toast('没有可导入的有效条目（每条需要 key 和 value）'); return; }
+    plibImportConfirm(box, valid, invalidCount);
+  };
+}
+
+function plibImportConfirm(box, valid, invalidCount){
+  const pubN = valid.filter(r => r.scope === 'public').length;
+  const privN = valid.length - pubN;
+  box.innerHTML =
+    '<h3 class="modal-title">确认导入 ' + valid.length + ' 条？</h3>' +
+    '<div class="plib-tip">🌍 公开 ' + pubN + ' 条 · 🔒 私密 ' + privN + ' 条' +
+    (invalidCount ? ' · ⚠️ ' + invalidCount + ' 条无效已跳过' : '') +
+    ' · 同分类同名的旧条目会被覆盖更新</div>' +
+    '<div class="plib-list">' + valid.map(r =>
+      '<div class="plib-row"><span class="pc">' + (r.scope === 'public' ? '🌍' : '🔒') + ' ' + escapeHTML(PLIB_CAT_LABEL[r.category] || r.category) + '</span>' +
+      '<span class="pk">' + escapeHTML(r.key) + '</span><span class="pv">' + escapeHTML(r.value) + '</span></div>'
+    ).join('') + '</div>' +
+    '<div class="modal-actions"><button class="btn-ghost" data-a="back">← 返回重改</button><button class="btn-primary" data-a="go">✅ 确认导入</button></div>';
+  box.querySelector('[data-a=back]').onclick = () => plibImportView(box);
+  box.querySelector('[data-a=go]').onclick = async () => {
+    const pub = valid.filter(r => r.scope === 'public').map(r => ({ category: r.category, key: r.key, value: r.value }));
+    const priv = valid.filter(r => r.scope === 'private').map(r => ({ category: r.category, key: r.key, value: r.value }));
+    if(pub.length){
+      const { error } = await sb.from('public_profile').upsert(pub, { onConflict: 'category,key' });
+      if(error){ toast('公开域导入失败：' + error.message); return; }
+    }
+    if(priv.length){
+      const { error } = await sb.from('private_profile').upsert(priv, { onConflict: 'category,key' });
+      if(error){ toast('私密域导入失败：' + error.message); return; }
+    }
+    toast('已导入 ' + valid.length + ' 条，AI 现在认识更多的你了 🧠');
+    plibOpen();
+  };
+}
 
 /* ================= About Me：标签管理 ================= */
 const TAG_COLORS = { blue:'tag-blue', green:'tag-green', yellow:'tag-yellow' };
