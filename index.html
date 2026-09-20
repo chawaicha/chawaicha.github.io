@@ -572,6 +572,24 @@ body.is-admin .info-card:hover .ic-edit, body.is-admin .intro-card:hover .ic-edi
 .ai-msg.thinking .m-bubble{color:var(--ink-soft);font-style:italic}
 .ai-msg.error .m-bubble{background:#FDEEEC;color:#C0392B}
 .ai-turnstile{padding:10px 20px 0;display:flex;justify-content:flex-end}
+
+/* ================= 分身资料库（站长管理界面） ================= */
+.plib-tip{font-size:12px;color:var(--ink-soft);line-height:1.7;margin:8px 0 12px;padding:8px 12px;background:rgba(63,184,232,.08);border-radius:10px}
+.plib-tabs{display:flex;gap:8px;margin-bottom:12px}
+.plib-tabs button{flex:1;padding:9px;border-radius:12px;border:1.5px solid rgba(63,184,232,.3);background:rgba(255,255,255,.6);cursor:pointer;font-size:13px;font-weight:600;color:var(--ink-soft);transition:all .2s}
+.plib-tabs button.active{background:linear-gradient(135deg,var(--blue),var(--green));color:#fff;border-color:transparent;box-shadow:0 4px 12px rgba(63,184,232,.3)}
+.plib-list{max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.plib-empty{text-align:center;color:var(--ink-soft);font-size:13px;padding:24px 0}
+.plib-row{display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.9);border-radius:12px;font-size:13px}
+.plib-row .pc{flex-shrink:0;background:rgba(63,184,232,.14);color:#2a7ca8;border-radius:8px;padding:2px 7px;font-size:11px}
+.plib-row .pk{font-weight:600;flex-shrink:0;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plib-row .pv{flex:1;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.plib-row .pa{flex-shrink:0;display:flex;gap:4px}
+.plib-row .pa button{border:none;background:rgba(97,160,140,.1);border-radius:8px;padding:4px 7px;cursor:pointer;font-size:12px;transition:background .2s}
+.plib-row .pa button:hover{background:rgba(97,160,140,.25)}
+.plib-form label{display:block;font-size:12px;font-weight:600;color:var(--ink-soft);margin:10px 0 4px}
+.plib-form select{width:100%;padding:9px 12px;border-radius:12px;border:1.5px solid rgba(63,184,232,.25);background:rgba(255,255,255,.85);font-family:inherit;font-size:14px}
+.plib-form textarea{width:100%;min-height:80px;padding:9px 12px;border-radius:12px;border:1.5px solid rgba(63,184,232,.25);background:rgba(255,255,255,.85);font-family:inherit;font-size:14px;resize:vertical;box-sizing:border-box}
 .ai-input-row{display:flex;gap:10px;padding:16px 20px;border-top:1px solid rgba(255,255,255,.8)}
 .ai-input-row input{
   flex:1;border:2px solid var(--line);border-radius:999px;background:rgba(255,255,255,.7);
@@ -688,6 +706,7 @@ body.is-admin .info-card:hover .ic-edit, body.is-admin .intro-card:hover .ic-edi
         <span class="vc-name" id="vc-name"></span>
       </div>
       <button class="replay-btn" id="admin-btn">🔑 站长登录</button>
+      <button class="replay-btn admin-only" id="plib-btn">🧠 分身资料库</button>
       <button class="replay-btn" id="replay-intro">↻ 重播开场动画</button>
       <div class="foot-text">记录正在发生的我<br>✦ ✧ ✦</div>
     </div>
@@ -1216,6 +1235,126 @@ $('#admin-btn').addEventListener('click', () => {
   if(isAdmin) sb.auth.signOut().then(() => toast('已退出登录'));
   else showLogin();
 });
+
+/* ================= 分身资料库（站长专属 · 公开/私密双域） =================
+ * 公开资料：访客版 AI 也能读到（会拼进访客对话的上下文）
+ * 私密资料：只有你登录后，AI 才认识；访客在任何层面都接触不到
+ * 拿不准放哪的资料：一律放私密（default private 原则） */
+const PLIB_CATEGORIES = {
+  public: ['basic_info', 'interests', 'favorites', 'experiences', 'stories', 'self_description', 'misc'],
+  private: ['personal', 'relationships', 'diary', 'secrets', 'misc']
+};
+const PLIB_CAT_LABEL = {
+  basic_info:'基本信息', interests:'兴趣爱好', favorites:'喜欢的事物', experiences:'经历',
+  stories:'故事', self_description:'自我描述', personal:'私人信息', relationships:'私人关系',
+  diary:'日记心绪', secrets:'机密', misc:'其他'
+};
+let plibScope = 'public';
+const plibTable = () => plibScope === 'private' ? 'private_profile' : 'public_profile';
+
+async function plibLoad(){
+  const { data, error } = await sb.from(plibTable()).select('*').order('sort').order('ts');
+  if(error){ toast('读取资料库失败：' + error.message); return []; }
+  return data || [];
+}
+function plibRowHTML(r){
+  const cat = PLIB_CAT_LABEL[r.category] || r.category;
+  return '<div class="plib-row" data-id="' + r.id + '">' +
+    '<span class="pc">' + escapeHTML(cat) + '</span>' +
+    '<span class="pk" title="' + escapeHTML(r.key) + '">' + escapeHTML(r.key) + '</span>' +
+    '<span class="pv" title="' + escapeHTML(r.value) + '">' + escapeHTML(r.value) + '</span>' +
+    '<span class="pa">' +
+      '<button data-a="edit" title="编辑">✏️</button>' +
+      '<button data-a="move" title="' + (plibScope === 'public' ? '移到私密' : '移到公开') + '">' + (plibScope === 'public' ? '🔒' : '🌍') + '</button>' +
+      '<button data-a="del" title="删除">🗑</button>' +
+    '</span>' +
+  '</div>';
+}
+async function plibRenderList(box){
+  const rows = await plibLoad();
+  const list = box.querySelector('.plib-list');
+  list.innerHTML = rows.length ? rows.map(plibRowHTML).join('') : '<div class="plib-empty">这个域还没有资料，点下方按钮新增一条吧</div>';
+  list.querySelectorAll('.plib-row').forEach(rowEl => {
+    const row = rows.find(r => r.id === rowEl.dataset.id);
+    rowEl.querySelector('[data-a=edit]').onclick = () => plibForm(box, row);
+    rowEl.querySelector('[data-a=del]').onclick = async () => {
+      if(!confirm('删除「' + row.key + '」？删除后 AI 就不再知道这件事了')) return;
+      const { error } = await sb.from(plibTable()).delete().eq('id', row.id);
+      if(error){ toast('删除失败：' + error.message); return; }
+      toast('已删除 🗑');
+      plibRenderList(box);
+    };
+    rowEl.querySelector('[data-a=move]').onclick = async () => {
+      const to = plibScope === 'public' ? '私密 🔒' : '公开 🌍';
+      const warn = plibScope === 'private'
+        ? '移到「公开」后，访客版 AI 也能看到这条资料，确定吗？'
+        : '移到「私密」后，只有你能和 AI 聊起它，确定吗？';
+      if(!confirm(warn)) return;
+      const other = plibScope === 'public' ? 'private_profile' : 'public_profile';
+      const { error: e1 } = await sb.from(other).upsert(
+        { category: row.category, key: row.key, value: row.value, sort: row.sort },
+        { onConflict: 'category,key' }
+      );
+      if(e1){ toast('移动失败：' + e1.message); return; }
+      const { error: e2 } = await sb.from(plibTable()).delete().eq('id', row.id);
+      if(e2){ toast('移动失败：' + e2.message); return; }
+      toast('已移到' + to);
+      plibRenderList(box);
+    };
+  });
+}
+function plibForm(box, row){
+  const isEdit = !!row;
+  const cats = PLIB_CATEGORIES[plibScope];
+  const scopeName = plibScope === 'public' ? '公开 🌍' : '私密 🔒';
+  box.innerHTML =
+    '<h3 class="modal-title">' + (isEdit ? '编辑' : '新增') + '条目（' + scopeName + '域）</h3>' +
+    '<div class="plib-form">' +
+      '<label>分类</label>' +
+      '<select id="pf-cat">' + cats.map(c => '<option value="' + c + '"' + (isEdit && row.category === c ? ' selected' : '') + '>' + (PLIB_CAT_LABEL[c] || c) + '（' + c + '）</option>').join('') + '</select>' +
+      '<label>条目名（如：昵称、电影、梦想）</label>' +
+      '<input id="pf-key" class="modal-input" maxlength="30" value="' + (isEdit ? escapeHTML(row.key) : '') + '" placeholder="这条资料叫什么" />' +
+      '<label>内容</label>' +
+      '<textarea id="pf-value" maxlength="500" placeholder="AI 会按你写的内容来认识你">' + (isEdit ? escapeHTML(row.value) : '') + '</textarea>' +
+    '</div>' +
+    '<div class="modal-actions"><button class="btn-ghost" data-a="back">返回</button><button class="btn-primary" data-a="save">保存</button></div>';
+  box.querySelector('[data-a=back]').onclick = () => plibOpen();
+  box.querySelector('[data-a=save]').onclick = async () => {
+    const category = box.querySelector('#pf-cat').value;
+    const key = box.querySelector('#pf-key').value.trim();
+    const value = box.querySelector('#pf-value').value.trim();
+    if(!key || !value){ toast('条目名和内容都要填哦'); return; }
+    const payload = { category: category, key: key, value: value };
+    if(isEdit) payload.id = row.id;
+    const { error } = await sb.from(plibTable()).upsert(payload, { onConflict: 'category,key' });
+    if(error){ toast('保存失败：' + error.message); return; }
+    toast(isEdit ? '已保存 ✏️' : '已录入，AI 现在知道这件事了 🧠');
+    plibOpen();
+  };
+}
+async function plibOpen(){
+  if(!CLOUD_ON){ toast('资料库需要云端模式'); return; }
+  if(!isAdmin){ toast('只有站长能管理资料库'); return; }
+  openModal(
+    '<h3 class="modal-title">🧠 分身资料库</h3>' +
+    '<div class="plib-tip">🌍 <b>公开资料</b>：访客和 AI 都能看到 · 🔒 <b>私密资料</b>：只有你登录后 AI 才认识。拿不准的一律放私密。</div>' +
+    '<div class="plib-tabs">' +
+      '<button data-s="public"' + (plibScope === 'public' ? ' class="active"' : '') + '>🌍 公开资料</button>' +
+      '<button data-s="private"' + (plibScope === 'private' ? ' class="active"' : '') + '>🔒 私密资料</button>' +
+    '</div>' +
+    '<div class="plib-list"><div class="plib-empty">读取中…</div></div>' +
+    '<div class="modal-actions"><button class="btn-ghost" data-a="close">关闭</button><button class="btn-primary" data-a="add">＋ 新增条目</button></div>'
+  );
+  const box = $('#modal-box');
+  box.querySelectorAll('.plib-tabs button').forEach(b => b.onclick = () => {
+    plibScope = b.dataset.s;
+    plibOpen();
+  });
+  box.querySelector('[data-a=close]').onclick = closeModal;
+  box.querySelector('[data-a=add]').onclick = () => plibForm(box, null);
+  await plibRenderList(box);
+}
+$('#plib-btn').addEventListener('click', plibOpen);
 
 /* ================= About Me：标签管理 ================= */
 const TAG_COLORS = { blue:'tag-blue', green:'tag-green', yellow:'tag-yellow' };
