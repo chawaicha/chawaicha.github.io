@@ -700,6 +700,7 @@ body.is-admin .info-card:hover .ic-edit, body.is-admin .intro-card:hover .ic-edi
     <button class="nav-btn" data-m="world"><span class="nav-emoji">🌍</span>My World</button>
     <button class="nav-btn" data-m="journal"><span class="nav-emoji">📖</span>Journal</button>
     <button class="nav-btn" data-m="ai"><span class="nav-emoji">🤖</span>AI Mirror</button>
+    <button class="nav-btn admin-only" data-m="inner"><span class="nav-emoji">🪷</span>内观</button>
     <div class="sidebar-foot">
       <div id="visitor-card" hidden title="点击修改我的资料">
         <span class="vc-avatar" id="vc-avatar">👤</span>
@@ -788,7 +789,7 @@ body.is-admin .info-card:hover .ic-edit, body.is-admin .intro-card:hover .ic-edi
           <div class="ai-orb-small">🪞</div>
           <div class="ai-head-text">
             <b>Mirror AI</b>
-            <p>站长的 AI 分身，随便聊～</p>
+            <p>站长的 AI 分身，了解关于站长的公开资料</p>
           </div>
         </div>
         <div class="ai-msgs" id="ai-msgs"></div>
@@ -796,6 +797,24 @@ body.is-admin .info-card:hover .ic-edit, body.is-admin .intro-card:hover .ic-edi
         <div class="ai-input-row">
           <input id="ai-input" maxlength="500" placeholder="问点什么吧…（Enter 发送）" />
           <button id="ai-send" class="ai-send-btn">发送</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 内观（站长专属，访客看不到入口也调不通后端） -->
+    <section class="module" id="mod-inner">
+      <div class="ai-chat card">
+        <div class="ai-head">
+          <div class="ai-orb-small inner-orb">🪷</div>
+          <div class="ai-head-text">
+            <b>内观</b>
+            <p>只属于你的镜子 · 看见看不见的、看错的、和已经看见的自己</p>
+          </div>
+        </div>
+        <div class="ai-msgs" id="inner-msgs"></div>
+        <div class="ai-input-row">
+          <input id="inner-input" maxlength="500" placeholder="问问我：最近的我有什么模式？（Enter 发送）" />
+          <button id="inner-send" class="ai-send-btn">发送</button>
         </div>
       </div>
     </section>
@@ -1362,8 +1381,11 @@ $('#plib-btn').addEventListener('click', plibOpen);
 const PLIB_INTERVIEW_PROMPT = [
   '请你做我的采访者，帮我建立"数字分身"的个人资料库。规则：',
   '1. 像朋友聊天一样采访我，一次只问一个问题，循序渐进，根据我的回答追问细节；',
-  '2. 采访范围：基本信息、兴趣爱好、喜欢的事物（音乐/电影/书/游戏/食物/运动…）、经历、故事、自我描述，以及更私人的内容（私人感受、关系、日记式心绪、秘密等）；',
-  '3. 每得到一条信息，先问我"这条可以公开吗？"——我明确同意公开的标 public，其余一律标 private（默认私密）；',
+  '2. 采访范围不限：基本信息、兴趣爱好、喜欢的事物（音乐/电影/书/游戏/食物/运动…）、经历、故事、自我描述，也可以是更深层的感受、想法和私人话题；',
+  '3. 每得到一条信息，问我一句：「这条要放进对外数据库吗？」（对外数据库 = 我网站上的访客可以通过 AI 分身聊到的内容）',
+  '   - 我说"放" → 标 public；',
+  '   - 我说"不放" → 标 private（只有我本人的私人 AI 能看到）；',
+  '   - 我没明确说"放"，一律标 private；',
   '4. 我说"采访结束"后，把所有信息整理成一个 JSON 数组输出：只输出 JSON 本身，不要任何其他文字，不要用代码块包裹。格式：',
   '[{"scope":"public","category":"basic_info","key":"昵称","value":"叉歪叉"},{"scope":"private","category":"diary","key":"最近的心事","value":"……"}]',
   'scope 只能是 public 或 private；category 从这些里选：basic_info / interests / favorites / experiences / stories / self_description / personal / relationships / diary / secrets / misc；',
@@ -1374,7 +1396,7 @@ const PLIB_INTERVIEW_PROMPT = [
 function plibImportView(box){
   box.innerHTML =
     '<h3 class="modal-title">📥 批量导入资料</h3>' +
-    '<div class="plib-tip">让 GPT 采访你：点「复制采访提示词」发给 GPT，聊完后把它输出的 JSON 粘贴到下面。<b>没标 scope 的条目默认进 🔒 私密域</b>，不会误公开。</div>' +
+    '<div class="plib-tip">让 GPT 采访你：点「复制采访提示词」发给 GPT，采访时它会逐条问你「这条要放进对外数据库吗」——放的去 🌍 公开（访客 AI 也能聊），不放的去 🔒 私密（只有你的「内观」能看到）。没标 scope 的默认进私密，不会误公开。</div>' +
     '<div class="modal-actions" style="margin-bottom:10px"><button class="btn-ghost" data-a="copy">📋 复制采访提示词</button></div>' +
     '<div class="plib-form"><textarea id="pi-json" style="min-height:130px" placeholder=\'[{"scope":"public","category":"basic_info","key":"昵称","value":"叉歪叉"}, …]\'></textarea></div>' +
     '<div class="modal-actions"><button class="btn-ghost" data-a="back">返回</button><button class="btn-primary" data-a="parse">解析预览 →</button></div>';
@@ -2468,10 +2490,12 @@ function refreshCurrentFeeds(){
 
 /* ================= 模块切换 ================= */
 function switchModule(name){
+  if(name === 'inner' && !isAdmin) name = 'about'; /* 内观只对站长开放 */
   $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.m === name));
   $$('.module').forEach(m => m.classList.toggle('active', m.id === 'mod-' + name));
   if(name === 'journal') initJournal();
   if(name === 'world') renderWorld();
+  if(name === 'inner') renderInnerChat();
   try{ sessionStorage.setItem('mirror_current_module', name); }catch(e){}
   $('#main').scrollTop = 0;
 }
@@ -2630,6 +2654,84 @@ $('#ai-input').addEventListener('keydown', e => {
 });
 renderAiChat();
 mountTurnstile(); /* 兜底：Turnstile 的 js 可能比我们加载得早 */
+
+/* ================= 内观（站长专属的私人镜子） =================
+ * 数据源：完整资料库（含私密）+ 全部发帖记录（含私密帖）
+ * 访客：看不到入口（admin-only）、构造状态会被 switchModule 弹回、
+ *       直接调后端也会被验票拒绝 —— 三层防护 */
+const INNER_FN_NAME = 'mirror-inner';
+let innerHistory = store.get('mirror_inner_history', []);
+if(!Array.isArray(innerHistory)) innerHistory = [];
+
+function renderInnerChat(){
+  const box = $('#inner-msgs');
+  if(!box) return;
+  let html = '';
+  if(!innerHistory.length){
+    html += '<div class="ai-msg ai">' +
+      '<span class="m-avatar">🪷</span>' +
+      '<span class="m-bubble">我在。这里只有我们——你的自我描述，和你全部的行为记录。' +
+      '你可以问我：「最近的我，有什么我自己没注意到的模式？」「我说的和做的是一致的吗？」' +
+      '或者任何一个，你想被照见的角落。</span></div>';
+  }
+  html += innerHistory.map(m => {
+    const who = m.role === 'user' ? 'user' : 'ai';
+    const avatar = m.role === 'user' ? avatarHTML(profile.avatar) : '🪷';
+    const cls = m.error ? ' error' : (m.pending ? ' thinking' : '');
+    return '<div class="ai-msg ' + who + cls + '">' +
+      '<span class="m-avatar">' + avatar + '</span>' +
+      '<span class="m-bubble">' + escapeHTML(m.content) + '</span></div>';
+  }).join('');
+  box.innerHTML = html;
+  box.scrollTop = box.scrollHeight;
+}
+async function sendInner(){
+  const input = $('#inner-input');
+  const v = input.value.trim();
+  if(!v) return;
+  if(!CLOUD_ON){ toast('内观需要云端模式'); return; }
+  if(!isAdmin){ toast('内观只对站长开放，请先 🔑 登录'); return; }
+  let adminToken = '';
+  try{
+    const sess = await sb.auth.getSession();
+    adminToken = (sess && sess.data && sess.data.session && sess.data.session.access_token) || '';
+  }catch(e){}
+  if(!adminToken){ toast('登录状态失效了，请重新 🔑 登录'); return; }
+
+  input.value = '';
+  const btn = $('#inner-send');
+  btn.disabled = true;
+  innerHistory.push({ role: 'user', content: v });
+  innerHistory.push({ role: 'assistant', content: '正在翻看你的记录…', pending: true });
+  renderInnerChat();
+  try{
+    const sendMsgs = innerHistory.filter(m => !m.pending && !m.error).slice(-16);
+    const { data, error } = await sb.functions.invoke(INNER_FN_NAME, {
+      body: { messages: sendMsgs, adminToken: adminToken }
+    });
+    innerHistory.pop();
+    if(error || !data || typeof data.reply !== 'string'){
+      let tip = '镜子起雾了，稍后再试';
+      if(data && data.error === 'forbidden') tip = '身份验证没通过，请重新 🔑 登录';
+      if(data && data.error === 'no-key') tip = '站长还没配置 AI 钥匙 🔑';
+      innerHistory.push({ role: 'assistant', content: '⚠️ ' + tip, error: true });
+    }else{
+      innerHistory.push({ role: 'assistant', content: data.reply });
+    }
+  }catch(e){
+    innerHistory.pop();
+    innerHistory.push({ role: 'assistant', content: '⚠️ 网络好像不太好，稍后再试', error: true });
+  }
+  innerHistory = innerHistory.slice(-30);
+  store.set('mirror_inner_history', innerHistory);
+  renderInnerChat();
+  btn.disabled = false;
+  input.focus();
+}
+$('#inner-send').addEventListener('click', sendInner);
+$('#inner-input').addEventListener('keydown', e => {
+  if(e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); sendInner(); }
+});
 
 /* ================= 启动 ================= */
 function loadSettings(){
