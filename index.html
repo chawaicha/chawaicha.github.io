@@ -1412,6 +1412,11 @@ function plibImportView(box){
     if(!raw){ toast('先粘贴 GPT 输出的 JSON'); return; }
     raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''); /* 容忍 ```json 代码块包裹 */
     raw = raw.replace(/[\s，。；、]+$/, ''); /* 容忍 GPT 输出结尾带的中文标点 */
+    /* 容忍 GPT 在 JSON 前后加了解释文字：自动抠出第一个 [ 到最后一个 ] */
+    if(!raw.startsWith('[')){
+      const i = raw.indexOf('['), j = raw.lastIndexOf(']');
+      if(i >= 0 && j > i) raw = raw.slice(i, j + 1);
+    }
     let arr;
     try{ arr = JSON.parse(raw); }catch(e){ toast('JSON 格式有误，检查括号和逗号'); return; }
     if(!Array.isArray(arr) || !arr.length){ toast('需要是一个非空的 JSON 数组 [...]'); return; }
