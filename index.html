@@ -2564,6 +2564,14 @@ function mountTurnstile(){
   const need = CLOUD_ON && !!CLOUD_CONFIG.TURNSTILE_SITEKEY && !isAdmin;
   if(need && turnstileApiReady && typeof turnstile !== 'undefined'){
     slot.hidden = false;
+    /* 微信内置浏览器与验证组件不兼容：提前给访客指条明路 */
+    if(/MicroMessenger/i.test(navigator.userAgent) && !$('#wx-tip')){
+      const tip = document.createElement('div');
+      tip.id = 'wx-tip';
+      tip.style.cssText = 'font-size:12px;color:#b45309;background:#fef3c7;border-radius:8px;padding:8px 10px;margin-bottom:8px;line-height:1.6';
+      tip.textContent = '💡 微信内置浏览器可能无法通过人机验证——如果反复验证失败，点右上角「···」→「在浏览器打开」即可';
+      slot.parentNode.insertBefore(tip, slot);
+    }
     if(turnstileWidget === null){
       turnstileWidget = turnstile.render(slot, {
         sitekey: CLOUD_CONFIG.TURNSTILE_SITEKEY,
@@ -2648,7 +2656,7 @@ async function sendAi(){
       let tip = 'AI 暂时走神了，稍后再试';
       if(data && data.error === 'no-key') tip = '站长还没配置 AI 钥匙 🔑';
       if(data && data.error === 'quota') tip = '今天的聊天额度用完啦，明天再来找我玩～';
-      if(data && data.error === 'bad-captcha') tip = '人机验证没通过，刷新页面再试一次';
+      if(data && data.error === 'bad-captcha') tip = /MicroMessenger/i.test(navigator.userAgent) ? '微信内置浏览器过不了验证，点右上角「···」→「在浏览器打开」再聊' : '人机验证没通过，刷新页面再试一次';
       aiHistory.push({ role: 'assistant', content: '⚠️ ' + tip, error: true });
     }else{
       aiHistory.push({ role: 'assistant', content: data.reply });
