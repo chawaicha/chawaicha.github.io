@@ -1418,7 +1418,11 @@ function plibImportView(box){
       if(i >= 0 && j > i) raw = raw.slice(i, j + 1);
     }
     let arr;
-    try{ arr = JSON.parse(raw); }catch(e){ toast('JSON 格式有误，检查括号和逗号'); return; }
+    try{ arr = JSON.parse(raw); }catch(e){
+      /* 容忍 GPT 漏掉外层方括号：{...},{...} 自动补全为数组 */
+      try{ arr = JSON.parse('[' + raw.replace(/\]\s*$/, '') + ']'); }
+      catch(e2){ toast('JSON 格式有误，检查括号和逗号'); return; }
+    }
     if(!Array.isArray(arr) || !arr.length){ toast('需要是一个非空的 JSON 数组 [...]'); return; }
     const valid = [];
     let invalidCount = 0;
@@ -2573,13 +2577,23 @@ function mountTurnstile(){
   }
 }
 
+/* 轻量 markdown 渲染：先转义防注入，再支持 **粗体** *斜体* `代码` 和换行 */
+function mdLite(s){
+  return escapeHTML(s)
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\n/g, '<br>');
+}
+
 function aiMsgHTML(m){
   const who = m.role === 'user' ? 'user' : 'ai';
   const avatar = m.role === 'user' ? avatarHTML(visitorProfile().avatar) : '🪞';
   const cls = m.error ? ' error' : (m.pending ? ' thinking' : '');
+  const body = m.role === 'user' ? escapeHTML(m.content) : mdLite(m.content);
   return '<div class="ai-msg ' + who + cls + '">' +
     '<span class="m-avatar">' + avatar + '</span>' +
-    '<span class="m-bubble">' + escapeHTML(m.content) + '</span>' +
+    '<span class="m-bubble">' + body + '</span>' +
   '</div>';
 }
 function renderAiChat(){
@@ -2684,9 +2698,10 @@ function renderInnerChat(){
     const who = m.role === 'user' ? 'user' : 'ai';
     const avatar = m.role === 'user' ? avatarHTML(profile.avatar) : '🪷';
     const cls = m.error ? ' error' : (m.pending ? ' thinking' : '');
+    const body = m.role === 'user' ? escapeHTML(m.content) : mdLite(m.content);
     return '<div class="ai-msg ' + who + cls + '">' +
       '<span class="m-avatar">' + avatar + '</span>' +
-      '<span class="m-bubble">' + escapeHTML(m.content) + '</span></div>';
+      '<span class="m-bubble">' + body + '</span></div>';
   }).join('');
   box.innerHTML = html;
   box.scrollTop = box.scrollHeight;
